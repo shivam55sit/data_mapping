@@ -6,6 +6,9 @@
 *.xls
 *.csv
 
+# Exception: Reference template file needed by the app
+!Demonstration Multipurpose School.xls
+
 # Output directory (processed/standardized data)
 output/
 
