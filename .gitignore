@@ -1,0 +1,59 @@
+# ========================
+# Confidential Data Files
+# ========================
+# Excel data files (student/school data)
+*.xlsx
+*.xls
+*.csv
+
+# Output directory (processed/standardized data)
+output/
+
+# ========================
+# Python Virtual Environment
+# ========================
+venv/
+.venv/
+env/
+
+# ========================
+# Python Bytecode & Cache
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.*
+*.key
+*.pem
+*.secret
+
+# ========================
+# IDE / Editor Files
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS Generated Files
+# ========================
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ========================
+# Streamlit
+# ========================
+.streamlit/secrets.toml
