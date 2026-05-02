@@ -392,9 +392,27 @@ def process_uploaded_file(uploaded_file, standard_columns):
 
 def to_excel_bytes(df):
     """Convert DataFrame to downloadable Excel bytes."""
+    from openpyxl.utils import get_column_letter
+
+    # Force long numeric IDs to string so Excel doesn't use scientific notation
+    df = df.copy()
+    if "Child Unique Code" in df.columns:
+        df["Child Unique Code"] = df["Child Unique Code"].apply(
+            lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+        )
+
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Standardised")
+
+        # Set the "Child Unique Code" column format to Text in Excel
+        ws = writer.sheets["Standardised"]
+        if "Child Unique Code" in df.columns:
+            col_idx = df.columns.get_loc("Child Unique Code") + 1  # +1 for 1-indexed
+            col_letter = get_column_letter(col_idx)
+            for row in range(2, ws.max_row + 1):  # skip header
+                ws[f"{col_letter}{row}"].number_format = '@'
+
     return buffer.getvalue()
 
 
