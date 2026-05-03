@@ -189,15 +189,19 @@ def rename_by_prefix(df, col_map):
     """
     Rename columns using prefix matching.
     For each map key, if a column starts with that key text, rename it.
-    This handles cases where the actual Excel header is longer than the map key
-    (e.g. extra descriptive text appended).
-    Falls back to exact match via normal rename for remaining columns.
+    Skips pandas dedup suffixes like '.1', '.2' to avoid false matches.
     """
     rename_dict = {}
+    # Sort keys longest-first so more specific keys match before shorter ones
+    sorted_keys = sorted(col_map.keys(), key=len, reverse=True)
     for actual_col in df.columns:
-        for map_key, std_name in col_map.items():
-            if actual_col == map_key or actual_col.startswith(map_key):
-                rename_dict[actual_col] = std_name
+        for map_key in sorted_keys:
+            if actual_col == map_key:
+                rename_dict[actual_col] = col_map[map_key]
+                break
+            remaining = actual_col[len(map_key):]
+            if actual_col.startswith(map_key) and remaining and not remaining[0].isalnum() and not remaining.startswith('.'):
+                rename_dict[actual_col] = col_map[map_key]
                 break
     df = df.rename(columns=rename_dict)
     return df
@@ -222,8 +226,8 @@ def process_file(input_file, standard_columns):
     print(f"  VCH: {vch.shape[0]} rows, {vch.shape[1]} columns")
     print(f"  GHS: {ghs.shape[0]} rows, {ghs.shape[1]} columns")
 
-    # Rename using column maps (prefix matching for GHS)
-    vch = rename_by_prefix(vch, VCH_MAP)
+    # Rename: exact match for VCH, prefix match for GHS (GHS has longer headers)
+    vch = vch.rename(columns=VCH_MAP)
     ghs = rename_by_prefix(ghs, GHS_MAP)
 
     # Log which columns were successfully mapped
@@ -254,6 +258,9 @@ def process_file(input_file, standard_columns):
         # Fallback: if no ID column, just use VCH data
         print("  [WARN] Cannot merge — 'Child Unique Code' missing. Using VCH data only.")
         merged = vch
+
+    # ── Drop duplicate columns from merge (keep first) ─────────────────
+    merged = merged.loc[:, ~merged.columns.duplicated(keep='first')]
 
     # ── Build final output with all standard columns ─────────────────────
     final_df = pd.DataFrame()
