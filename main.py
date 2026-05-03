@@ -112,10 +112,30 @@ VCH_MAP = {
     # Cause of Visual Impairment
     "Cause of Visual impairement OD": "Right Refractive Error",
     "Cause of Visual impairement OS": "Left Refractive Error",
+
+    # Cover Test / Squint / Nystagmus
+    "Cover Test": "SS Squint",
+    "Nystagmus": "Shaking Eye Ball",
+
+    # Fundus
+    "Fundus OD": "Right Retinal Evaluation",
+    "Fundus OS": "Left Retinal Evaluation",
+
+    # Topography
+    "Topography OD": "Right Asymmetrical Topography",
+    "Topography OS": "Left Asymmetrical Topography",
+
+    # Action / Referral
+    "Action": "Advise For Next Module",
+    "Name of the TC/ City centre/VC": "C11 Vision Center Name",
+
+    # Date of last eye check (also available from GHS)
+    "Date of last eye Check up": "Last Eye Check B1",
 }
 
 # ── GHS MAP (Sheet 1 — General Health Screening questionnaire) ──────────────
-# Keys here are the FIRST LINE of the multi-line column headers in the manual Excel
+# Keys are PREFIX strings — the actual Excel headers may be longer.
+# The rename_by_prefix() helper matches any column that starts with a key.
 GHS_MAP = {
     "Child Id": "Child Unique Code",
     "Name of the child": "Student Name",
@@ -157,30 +177,29 @@ def clean_columns(df):
     return df
 
 
-def normalize_ghs_columns(df):
+def normalize_columns(df):
     """
-    GHS columns have multi-line headers with option descriptions, e.g.:
-      '2. Do you have the habit of rubbbing eyes?\n0=No, 1=Yes'
-    Extract only the first line so they match the GHS_MAP keys.
+    Multi-line column headers — extract only the first line.
     """
-    new_cols = []
-    for col in df.columns:
-        first_line = col.split("\n")[0].strip()
-        new_cols.append(first_line)
-    df.columns = new_cols
+    df.columns = [col.split("\n")[0].strip() for col in df.columns]
     return df
 
 
-def normalize_vch_columns(df):
+def rename_by_prefix(df, col_map):
     """
-    VCH columns also have multi-line headers with option descriptions.
-    Extract only the first line so they match the VCH_MAP keys.
+    Rename columns using prefix matching.
+    For each map key, if a column starts with that key text, rename it.
+    This handles cases where the actual Excel header is longer than the map key
+    (e.g. extra descriptive text appended).
+    Falls back to exact match via normal rename for remaining columns.
     """
-    new_cols = []
-    for col in df.columns:
-        first_line = col.split("\n")[0].strip()
-        new_cols.append(first_line)
-    df.columns = new_cols
+    rename_dict = {}
+    for actual_col in df.columns:
+        for map_key, std_name in col_map.items():
+            if actual_col == map_key or actual_col.startswith(map_key):
+                rename_dict[actual_col] = std_name
+                break
+    df = df.rename(columns=rename_dict)
     return df
 
 
@@ -196,25 +215,34 @@ def process_file(input_file, standard_columns):
 
     # Clean and normalise column names
     vch = clean_columns(vch)
-    vch = normalize_vch_columns(vch)
+    vch = normalize_columns(vch)
     ghs = clean_columns(ghs)
-    ghs = normalize_ghs_columns(ghs)
+    ghs = normalize_columns(ghs)
 
     print(f"  VCH: {vch.shape[0]} rows, {vch.shape[1]} columns")
     print(f"  GHS: {ghs.shape[0]} rows, {ghs.shape[1]} columns")
 
-    # Rename using column maps
-    vch = vch.rename(columns=VCH_MAP)
-    ghs = ghs.rename(columns=GHS_MAP)
+    # Rename using column maps (prefix matching for GHS)
+    vch = rename_by_prefix(vch, VCH_MAP)
+    ghs = rename_by_prefix(ghs, GHS_MAP)
 
     # Log which columns were successfully mapped
-    vch_mapped = [v for k, v in VCH_MAP.items() if v in vch.columns]
-    ghs_mapped = [v for k, v in GHS_MAP.items() if v in ghs.columns]
+    vch_mapped = [v for v in set(VCH_MAP.values()) if v in vch.columns]
+    ghs_mapped = [v for v in set(GHS_MAP.values()) if v in ghs.columns]
     print(f"  VCH mapped columns: {len(vch_mapped)}")
     print(f"  GHS mapped columns: {len(ghs_mapped)}")
 
     # ── Merge VCH + GHS on student ID ────────────────────────────────────
-    # Both should now have 'Child Unique Code' after renaming
+    # Convert Child Unique Code to string in both frames to avoid type mismatch
+    if "Child Unique Code" in vch.columns:
+        vch["Child Unique Code"] = vch["Child Unique Code"].apply(
+            lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+        )
+    if "Child Unique Code" in ghs.columns:
+        ghs["Child Unique Code"] = ghs["Child Unique Code"].apply(
+            lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+        )
+
     if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns:
         # Drop overlapping non-key columns from GHS to avoid _x/_y suffixes
         ghs_only_cols = [c for c in ghs.columns if c not in vch.columns or c == "Child Unique Code"]

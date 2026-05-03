@@ -287,8 +287,23 @@ VCH_MAP = {
     "Diagnosis OS": "Left Impression",
     "Cause of Visual impairement OD": "Right Refractive Error",
     "Cause of Visual impairement OS": "Left Refractive Error",
+    # Cover Test / Squint / Nystagmus
+    "Cover Test": "SS Squint",
+    "Nystagmus": "Shaking Eye Ball",
+    # Fundus
+    "Fundus OD": "Right Retinal Evaluation",
+    "Fundus OS": "Left Retinal Evaluation",
+    # Topography
+    "Topography OD": "Right Asymmetrical Topography",
+    "Topography OS": "Left Asymmetrical Topography",
+    # Action / Referral
+    "Action": "Advise For Next Module",
+    "Name of the TC/ City centre/VC": "C11 Vision Center Name",
+    # Date of last eye check
+    "Date of last eye Check up": "Last Eye Check B1",
 }
 
+# GHS_MAP keys are PREFIX strings — actual Excel headers may be longer.
 GHS_MAP = {
     "Child Id": "Child Unique Code",
     "Name of the child": "Student Name",
@@ -332,6 +347,22 @@ def normalize_multiline_columns(df):
     return df
 
 
+def rename_by_prefix(df, col_map):
+    """
+    Rename columns using prefix matching.
+    For each map key, if a column starts with that key text, rename it.
+    This handles cases where the actual Excel header is longer than the map key.
+    """
+    rename_dict = {}
+    for actual_col in df.columns:
+        for map_key, std_name in col_map.items():
+            if actual_col == map_key or actual_col.startswith(map_key):
+                rename_dict[actual_col] = std_name
+                break
+    df = df.rename(columns=rename_dict)
+    return df
+
+
 def process_uploaded_file(uploaded_file, standard_columns):
     """Process a single uploaded manual Excel file and return standardised DataFrame + logs."""
     logs = []
@@ -346,18 +377,25 @@ def process_uploaded_file(uploaded_file, standard_columns):
     logs.append(("info", f"VCH sheet: {vch.shape[0]} rows × {vch.shape[1]} columns"))
     logs.append(("info", f"GHS sheet: {ghs.shape[0]} rows × {ghs.shape[1]} columns"))
 
-    # Track which manual columns were mapped
-    vch_before = set(vch.columns)
-    ghs_before = set(ghs.columns)
-
-    vch = vch.rename(columns=VCH_MAP)
-    ghs = ghs.rename(columns=GHS_MAP)
+    # Rename using prefix matching
+    vch = rename_by_prefix(vch, VCH_MAP)
+    ghs = rename_by_prefix(ghs, GHS_MAP)
 
     vch_mapped = len([c for c in vch.columns if c in set(VCH_MAP.values())])
     ghs_mapped = len([c for c in ghs.columns if c in set(GHS_MAP.values())])
 
     logs.append(("success", f"VCH: {vch_mapped} columns mapped to standard format"))
     logs.append(("success", f"GHS: {ghs_mapped} columns mapped to standard format"))
+
+    # Convert Child Unique Code to string to avoid type mismatch during merge
+    if "Child Unique Code" in vch.columns:
+        vch["Child Unique Code"] = vch["Child Unique Code"].apply(
+            lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+        )
+    if "Child Unique Code" in ghs.columns:
+        ghs["Child Unique Code"] = ghs["Child Unique Code"].apply(
+            lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+        )
 
     # Merge on Child Unique Code
     if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns:
