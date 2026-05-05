@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import io
+from decode_col import decode
 from datetime import datetime
 
 # ── PAGE CONFIG ─────────────────────────────────────────────────────────────
@@ -462,6 +463,30 @@ def to_excel_bytes(df):
     return buffer.getvalue()
 
 
+def decode_dataframe(df):
+    """
+    Replace encoded numeric values with text labels in the standardised DataFrame.
+    Returns (decoded_df, decode_logs, decoded_count).
+    """
+    df = df.copy()
+    decode_logs = []
+    decoded_count = 0
+
+    for col_name, value_map in decode.items():
+        if col_name in df.columns:
+            # Convert column to object dtype so we can mix strings and numbers safely
+            df[col_name] = df[col_name].astype(object)
+            # Use pandas replace to swap values based on the dict mapping
+            df[col_name] = df[col_name].replace(value_map)
+            decoded_count += 1
+            decode_logs.append(("success", f"Decoded: {col_name}"))
+        else:
+            decode_logs.append(("warn", f"Column not found in data: {col_name}"))
+
+    return df, decode_logs, decoded_count
+
+
+
 
 
 # ── MAIN CONTENT ────────────────────────────────────────────────────────────
@@ -546,22 +571,89 @@ if uploaded_file is not None:
 
         st.caption(f"Showing {len(cols_with_data)} columns with data (out of {len(standard_columns)} total)")
 
+        # ── Step 2: Decode Encoded Values ─────────────────────────────────
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 14px;
+            padding: 1.5rem 2rem;
+            margin: 2rem 0 1.5rem 0;
+        ">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem;">🔓 Step 2 — Decode Encoded Values</h3>
+            <p style="color: #8b8fa3; margin: 0; font-size: 0.92rem;">
+                Some GHS columns contain encoded numbers (e.g. 0 = No, 1 = Yes).
+                Enable decoding to replace them with the actual text values.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        do_decode = st.checkbox(
+            "✅ Decode encoded numeric values to text",
+            value=False,
+            help="Replaces numeric codes like 0, 1, -98 with their actual text labels (e.g. 'No', 'Yes', 'Not Applicable') for GHS questionnaire columns.",
+        )
+
+        if do_decode:
+            with st.spinner("🔓 Decoding values..."):
+                decoded_df, decode_logs, decoded_count = decode_dataframe(final_df)
+
+            # Decode stats
+            st.markdown(f"""
+            <div class="stat-row">
+                <div class="stat-card">
+                    <p class="stat-number">{decoded_count}</p>
+                    <p class="stat-label">Columns Decoded</p>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-number">{len(decode)}</p>
+                    <p class="stat-label">Total Decode Rules</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Decode log
+            with st.expander("📋 Decode Log", expanded=False):
+                for level, msg in decode_logs:
+                    css_class = f"log-{level}"
+                    icon = {"success": "✓", "info": "ℹ", "warn": "⚠"}.get(level, "•")
+                    st.markdown(
+                        f'<div class="log-entry {css_class}">{icon}  {msg}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            # Decoded preview — show only decoded columns
+            st.markdown('<div class="section-header"><h3>👁️ Decoded Data Preview</h3></div>', unsafe_allow_html=True)
+            std_decode_keys = list(decode.keys())
+            decoded_preview_cols = [c for c in std_decode_keys if c in decoded_df.columns]
+            if decoded_preview_cols:
+                st.dataframe(decoded_df[decoded_preview_cols], use_container_width=True, height=350)
+            else:
+                st.info("No decoded columns found in the data.")
+
+            # Use decoded version for download
+            download_df = decoded_df
+            file_suffix = "_standardised_decoded"
+        else:
+            download_df = final_df
+            file_suffix = "_standardised"
+
         # ── Download ─────────────────────────────────────────────────────
-        st.markdown('<div class="section-header"><h3>⬇️ Download</h3></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><h3>⬇️ Download Final Excel</h3></div>', unsafe_allow_html=True)
 
         file_basename = os.path.splitext(uploaded_file.name)[0]
-        output_filename = f"{file_basename}_standardised.xlsx"
+        output_filename = f"{file_basename}{file_suffix}.xlsx"
 
-        excel_bytes = to_excel_bytes(final_df)
+        excel_bytes = to_excel_bytes(download_df)
 
         st.download_button(
-            label=f"📥 Download Standardised Excel",
+            label=f"📥 Download {('Standardised + Decoded' if do_decode else 'Standardised')} Excel",
             data=excel_bytes,
             file_name=output_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-        st.info(f"📁 Output file: **{output_filename}** ({len(final_df)} rows × {len(standard_columns)} columns)")
+        st.info(f"📁 Output file: **{output_filename}** ({len(download_df)} rows × {len(standard_columns)} columns{' — decoded' if do_decode else ''})")
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
