@@ -431,6 +431,15 @@ def process_uploaded_file(uploaded_file, standard_columns):
 
     final_df["Reg Id"] = range(1, len(final_df) + 1)
 
+    # Sanitize dataframe to prevent PyArrow mixed-type serialization errors
+    # and ensure openpyxl writes clean files
+    for c in final_df.columns:
+        if final_df[c].dtype == object:
+            # Convert non-null values to string, keep empty strings empty
+            final_df[c] = final_df[c].apply(
+                lambda x: str(x) if pd.notna(x) and str(x).strip() != "" else ""
+            )
+
     logs.append(("success", f"Output: {len(final_df)} rows × {len(standard_columns)} columns"))
     logs.append(("info", f"Columns with data: {mapped_count} | Blank: {blank_count}"))
 
@@ -474,10 +483,19 @@ def decode_dataframe(df):
 
     for col_name, value_map in decode.items():
         if col_name in df.columns:
-            # Convert column to object dtype so we can mix strings and numbers safely
+            # Convert column to object dtype so we can safely replace
             df[col_name] = df[col_name].astype(object)
-            # Use pandas replace to swap values based on the dict mapping
-            df[col_name] = df[col_name].replace(value_map)
+            
+            # Build a robust mapping that handles ints, strings, and float-strings ("1.0")
+            robust_map = {}
+            for k, v in value_map.items():
+                robust_map[k] = v
+                robust_map[str(k)] = v
+                if isinstance(k, (int, float)):
+                    robust_map[str(float(k))] = v
+            
+            # Use pandas replace to swap values based on the robust mapping
+            df[col_name] = df[col_name].replace(robust_map)
             decoded_count += 1
             decode_logs.append(("success", f"Decoded: {col_name}"))
         else:
