@@ -235,11 +235,11 @@ TRIAGE_MAP = {
     'Gender(0: Male, 1: Female)': 'Gender',
     'Any disability*': 'Disability Any',
     'Using glasses?': 'Using Glasses',
-    'Vision test Right Eye (0=Pass, 1=Fail, -99=Unable)': 'Vision Test Right Eye',
-    'Vision test Left Eye (0= Pass, 1=Fail, -99=Unable)': 'Vision Test Left Eye',
-    'Signs & Symptoms ': 'SS Normal',
+    'Vision test Right Eye': 'Vision Test Right Eye',
+    'Vision test Left Eye': 'Vision Test Left Eye',
+    'Signs & Symptoms  ': 'SS Normal',
     'Referral*(0=No; 1=Yes)': 'Auto Referral',
-    'Reason for Referral, Specify reason' : 'Reason For Referral'
+    'Reason for Referral,' : 'Reason For Referral'
 }
 
 
