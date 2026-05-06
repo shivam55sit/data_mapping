@@ -237,7 +237,7 @@ TRIAGE_MAP = {
     'Using glasses?': 'Using Glasses',
     'Vision test Right Eye': 'Vision Test Right Eye',
     'Vision test Left Eye': 'Vision Test Left Eye',
-    'Signs & Symptoms  ': 'SS Normal',
+    'Signs & Symptoms': 'SS Normal',
     'Referral*(0=No; 1=Yes)': 'Auto Referral',
     'Reason for Referral,' : 'Reason For Referral'
 }
