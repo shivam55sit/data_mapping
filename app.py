@@ -227,7 +227,7 @@ TRIAGE_MAP = {
     'Section': 'Section',
     'Subject ID': 'Child Unique Code',
     'Parent Consent (Yes/No)': 'Parent Consent',
-    'Name of the child \n(with surname)': 'Student Name',
+    'Name of the child': 'Student Name',
     'Father/Guardian Name': 'Parent Or Guardians Name',
     'Mobile number': 'Contact Number',
     'Available (1=Yes;0=No)': 'Available',
