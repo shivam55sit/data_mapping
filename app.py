@@ -222,12 +222,12 @@ REFERENCE_FILE = "Demonstration Multipurpose School.xls"
 # ── COLUMN MAPS ─────────────────────────────────────────────────────────────
 TRIAGE_MAP = {
     'School Name ': 'School Name',
-    'School code': 'School Code',
+    'School code:': 'School Code',
     'Class ': 'Class',
     'Section': 'Section',
     'Subject ID': 'Child Unique Code',
     'Parent Consent (Yes/No)': 'Parent Consent',
-    'Name of the child (with surname)': 'Student Name',
+    'Name of the child \n(with surname)': 'Student Name',
     'Father/Guardian Name': 'Parent Or Guardians Name',
     'Mobile number': 'Contact Number',
     'Available (1=Yes;0=No)': 'Available',
