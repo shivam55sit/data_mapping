@@ -15,7 +15,34 @@ MANUAL_FILES = [
 # Output folder for standardised files
 OUTPUT_DIR = "output"
 
-# ── VCH MAP (Sheet 0 — Vision / Clinical / History) ────────────────────────
+
+
+## Triage MAP
+
+TRIAGE_MAP = {
+
+'School Name ': 'School Name',
+'School code': 'School Code',
+'Class ': 'Class',
+'Section': 'Section',
+'Subject ID': 'Child Unique Code',
+'Parent Consent (Yes/No)': 'Parent Consent',
+'Name of the child (with surname)': 'Student Name',
+'Father/Guardian Name': 'Parent Or Guardians Name',
+'Mobile number': 'Contact Number',
+'Available (1=Yes;0=No)': 'Available',
+'Age (Completed Years)': 'Age',
+'Gender(0: Male, 1: Female)': 'Gender',
+'Any disability* (use codes)': 'Disability Any',
+'Using glasses? (Yes: 1; No: 1)': 'Using Glasses',
+'Vision test Right Eye (0=Pass, 1=Fail, -99=Unable)': 'Vision Test Right Eye',
+'Vision test Left Eye (0= Pass, 1=Fail, -99=Unable)': 'Vision Test Left Eye',
+'Signs & Symptoms ': 'SS Normal',
+'Referral*(0=No; 1=Yes)': 'Auto Referral',
+'Reason for Referral, Specify reason' : 'Reason For Referral'
+}
+
+# ── VCH MAP (Sheet 1 — Vision / Clinical / History) ────────────────────────
 # Manual column name → Standard column name
 VCH_MAP = {
     # Identity & Demographics
@@ -133,7 +160,7 @@ VCH_MAP = {
     "Date of last eye Check up": "Last Eye Check B1",
 }
 
-# ── GHS MAP (Sheet 1 — General Health Screening questionnaire) ──────────────
+# ── GHS MAP (Sheet 2 — General Health Screening questionnaire) ──────────────
 # Keys are PREFIX strings — the actual Excel headers may be longer.
 # The rename_by_prefix() helper matches any column that starts with a key.
 GHS_MAP = {
@@ -214,25 +241,32 @@ def process_file(input_file, standard_columns):
     print(f"{'='*60}")
 
     # Read sheets (header is in row index 1 for manual files)
-    vch = pd.read_excel(input_file, sheet_name=0, header=1)
-    ghs = pd.read_excel(input_file, sheet_name=1, header=1)
+    triage = pd.read_excel(input_file, sheet_name=0, header=1)
+    vch = pd.read_excel(input_file, sheet_name=1, header=1)
+    ghs = pd.read_excel(input_file, sheet_name=2, header=1)
 
     # Clean and normalise column names
+    triage = clean_columns(triage)
+    triage = normalize_columns(triage)
     vch = clean_columns(vch)
     vch = normalize_columns(vch)
     ghs = clean_columns(ghs)
     ghs = normalize_columns(ghs)
 
+    print(f"  Triage: {triage.shape[0]} rows, {triage.shape[1]} columns")
     print(f"  VCH: {vch.shape[0]} rows, {vch.shape[1]} columns")
     print(f"  GHS: {ghs.shape[0]} rows, {ghs.shape[1]} columns")
 
     # Rename: exact match for VCH, prefix match for GHS (GHS has longer headers)
+    triage = triage.rename(columns=TRIAGE_MAP)
     vch = vch.rename(columns=VCH_MAP)
     ghs = rename_by_prefix(ghs, GHS_MAP)
 
     # Log which columns were successfully mapped
+    triage_mapped = [v for v in set(TRIAGE_MAP.values()) if v in triage.columns]
     vch_mapped = [v for v in set(VCH_MAP.values()) if v in vch.columns]
     ghs_mapped = [v for v in set(GHS_MAP.values()) if v in ghs.columns]
+    print(f"  Triage mapped columns: {len(triage_mapped)}")
     print(f"  VCH mapped columns: {len(vch_mapped)}")
     print(f"  GHS mapped columns: {len(ghs_mapped)}")
 
@@ -246,13 +280,22 @@ def process_file(input_file, standard_columns):
         ghs["Child Unique Code"] = ghs["Child Unique Code"].apply(
             lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
         )
+    if "Child Unique Code" in triage.columns:
+            triage["Child Unique Code"] = triage["Child Unique Code"].apply(
+                lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+            )    
 
-    if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns:
-        # Drop overlapping non-key columns from GHS to avoid _x/_y suffixes
-        ghs_only_cols = [c for c in ghs.columns if c not in vch.columns or c == "Child Unique Code"]
+    if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns and "Child Unique Code" in triage.columns:
+        # 1. Merge Triage and VCH
+        vch_only_cols = [c for c in vch.columns if c not in triage.columns or c == "Child Unique Code"]
+        vch_for_merge = vch[vch_only_cols]
+        merged = pd.merge(triage, vch_for_merge, on="Child Unique Code", how="outer")
+
+        # 2. Merge result with GHS
+        ghs_only_cols = [c for c in ghs.columns if c not in merged.columns or c == "Child Unique Code"]
         ghs_for_merge = ghs[ghs_only_cols]
-
-        merged = pd.merge(vch, ghs_for_merge, on="Child Unique Code", how="outer")
+        merged = pd.merge(merged, ghs_for_merge, on="Child Unique Code", how="outer")
+        
         print(f"  Merged: {merged.shape[0]} rows (outer join on Child Unique Code)")
     else:
         # Fallback: if no ID column, just use VCH data

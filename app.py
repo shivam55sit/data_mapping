@@ -220,6 +220,31 @@ st.markdown("""
 REFERENCE_FILE = "Demonstration Multipurpose School.xls"
 
 # ── COLUMN MAPS ─────────────────────────────────────────────────────────────
+TRIAGE_MAP = {
+    'School Name ': 'School Name',
+    'School code': 'School Code',
+    'Class ': 'Class',
+    'Section': 'Section',
+    'Subject ID': 'Child Unique Code',
+    'Parent Consent (Yes/No)': 'Parent Consent',
+    'Name of the child (with surname)': 'Student Name',
+    'Father/Guardian Name': 'Parent Or Guardians Name',
+    'Mobile number': 'Contact Number',
+    'Available (1=Yes;0=No)': 'Available',
+    'Age (Completed Years)': 'Age',
+    'Gender(0: Male, 1: Female)': 'Gender',
+    'Any disability* (use codes)': 'Disability Any',
+    'Using glasses? (Yes: 1; No: 1)': 'Using Glasses',
+    'Vision test Right Eye (0=Pass, 1=Fail, -99=Unable)': 'Vision Test Right Eye',
+    'Vision test Left Eye (0= Pass, 1=Fail, -99=Unable)': 'Vision Test Left Eye',
+    'Signs & Symptoms ': 'SS Normal',
+    'Referral*(0=No; 1=Yes)': 'Auto Referral',
+    'Reason for Referral, Specify reason' : 'Reason For Referral'
+}
+
+
+
+
 VCH_MAP = {
     "ID Number": "Child Unique Code",
     "Name of the child": "Student Name",
@@ -374,22 +399,28 @@ def process_uploaded_file(uploaded_file, standard_columns):
     logs = []
 
     # Read both sheets
-    vch = pd.read_excel(uploaded_file, sheet_name=0, header=1)
-    ghs = pd.read_excel(uploaded_file, sheet_name=1, header=1)
+    triage = pd.read_excel(uploaded_file, sheet_name=0, header=1)
+    vch = pd.read_excel(uploaded_file, sheet_name=1, header=1)
+    ghs = pd.read_excel(uploaded_file, sheet_name=2, header=1)
 
+    triage = normalize_multiline_columns(triage)
     vch = normalize_multiline_columns(vch)
     ghs = normalize_multiline_columns(ghs)
 
+    logs.append(("info", f"Triage sheet: {triage.shape[0]} rows × {triage.shape[1]} columns"))
     logs.append(("info", f"VCH sheet: {vch.shape[0]} rows × {vch.shape[1]} columns"))
     logs.append(("info", f"GHS sheet: {ghs.shape[0]} rows × {ghs.shape[1]} columns"))
 
     # Rename: exact match for VCH, prefix match for GHS (GHS has longer headers)
+    triage = triage.rename(columns=TRIAGE_MAP)
     vch = vch.rename(columns=VCH_MAP)
     ghs = rename_by_prefix(ghs, GHS_MAP)
 
+    triage_mapped = len([c for c in triage.columns if c in set(TRIAGE_MAP.values())])
     vch_mapped = len([c for c in vch.columns if c in set(VCH_MAP.values())])
     ghs_mapped = len([c for c in ghs.columns if c in set(GHS_MAP.values())])
 
+    logs.append(("success", f"Triage: {triage_mapped} columns mapped to standard format"))
     logs.append(("success", f"VCH: {vch_mapped} columns mapped to standard format"))
     logs.append(("success", f"GHS: {ghs_mapped} columns mapped to standard format"))
 
@@ -402,13 +433,24 @@ def process_uploaded_file(uploaded_file, standard_columns):
         ghs["Child Unique Code"] = ghs["Child Unique Code"].apply(
             lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
         )
+    if "Child Unique Code" in triage.columns:
+            triage["Child Unique Code"] = triage["Child Unique Code"].apply(
+                lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else ""
+            )  
 
     # Merge on Child Unique Code
-    if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns:
-        ghs_only = [c for c in ghs.columns if c not in vch.columns or c == "Child Unique Code"]
-        ghs_for_merge = ghs[ghs_only]
-        merged = pd.merge(vch, ghs_for_merge, on="Child Unique Code", how="outer")
-        logs.append(("success", f"Merged VCH + GHS on Child Unique Code → {merged.shape[0]} rows"))
+    if "Child Unique Code" in vch.columns and "Child Unique Code" in ghs.columns and "Child Unique Code" in triage.columns:
+        # 1. Merge Triage and VCH
+        vch_only_cols = [c for c in vch.columns if c not in triage.columns or c == "Child Unique Code"]
+        vch_for_merge = vch[vch_only_cols]
+        merged = pd.merge(triage, vch_for_merge, on="Child Unique Code", how="outer")
+
+        # 2. Merge result with GHS
+        ghs_only_cols = [c for c in ghs.columns if c not in merged.columns or c == "Child Unique Code"]
+        ghs_for_merge = ghs[ghs_only_cols]
+        merged = pd.merge(merged, ghs_for_merge, on="Child Unique Code", how="outer")
+        
+        logs.append(("success", f"Merged Triage + VCH + GHS on Child Unique Code → {merged.shape[0]} rows"))
     else:
         merged = vch
         logs.append(("warn", "Could not merge — 'Child Unique Code' missing. Using VCH only."))
