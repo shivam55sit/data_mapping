@@ -226,6 +226,7 @@ TRIAGE_MAP = {
     'Class ': 'Class',
     'Section': 'Section',
     'Subject ID': 'Child Unique Code',
+    'Id Number' : 'Child Unique Code',
     'Parent Consent (Yes/No)': 'Parent Consent',
     'Name of the child': 'Student Name',
     'Father/Guardian Name': 'Parent Or Guardians Name',
@@ -369,7 +370,7 @@ def get_standard_columns():
 
 def normalize_multiline_columns(df):
     """Extract only the first line of multi-line column headers."""
-    df.columns = [col.split("\n")[0].strip() for col in df.columns.str.strip()]
+    df.columns = [str(col).split("\n")[0].strip() for col in df.columns]
     return df
 
 
@@ -546,6 +547,47 @@ def decode_dataframe(df):
     return df, decode_logs, decoded_count
 
 
+def find_id_column(sheet_df, col_map):
+    """Find the column in the original sheet that maps to 'Child Unique Code'."""
+    for orig_name, std_name in col_map.items():
+        if std_name == 'Child Unique Code' and orig_name in sheet_df.columns:
+            return orig_name
+    return None
+
+
+def fill_missing_from_original(download_df, orig_sheet, id_col_name, ref_col_name, target_col_name):
+    """
+    Fill blank values in download_df[target_col_name] using orig_sheet[ref_col_name],
+    matched on orig_sheet[id_col_name] == download_df['Child Unique Code'].
+    Returns (updated_df, filled_count).
+    """
+    orig_sheet = orig_sheet.copy()
+    download_df = download_df.copy()
+
+    normalize_id = lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x).strip() if pd.notna(x) else ""
+    orig_sheet[id_col_name] = orig_sheet[id_col_name].apply(normalize_id)
+    download_df['Child Unique Code'] = download_df['Child Unique Code'].apply(normalize_id)
+
+    lookup = {}
+    for _, row in orig_sheet.iterrows():
+        code = row[id_col_name]
+        value = row[ref_col_name]
+        if code and pd.notna(value) and str(value).strip() != "":
+            lookup[code] = value
+
+    if target_col_name not in download_df.columns:
+        download_df[target_col_name] = pd.NA
+
+    filled_count = 0
+    for idx, row in download_df.iterrows():
+        cell = row[target_col_name]
+        if pd.isna(cell) or str(cell).strip() == "":
+            code = row['Child Unique Code']
+            if code in lookup:
+                download_df.at[idx, target_col_name] = lookup[code]
+                filled_count += 1
+
+    return download_df, filled_count
 
 
 
@@ -697,6 +739,105 @@ if uploaded_file is not None:
         else:
             download_df = final_df
             file_suffix = "_standardised"
+
+        # ── Step 3: Fill Missing Values from Original File ────────────────
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 14px;
+            padding: 1.5rem 2rem;
+            margin: 2rem 0 1.5rem 0;
+        ">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem;">🔧 Step 3 — Fill Missing Values</h3>
+            <p style="color: #8b8fa3; margin: 0; font-size: 0.92rem;">
+                If some values are missing in the standardised output, you can fill them
+                from the original uploaded file by matching on Child Unique Code.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Read original sheets for column listing
+        uploaded_file.seek(0)
+        orig_all_sheets = pd.read_excel(uploaded_file, sheet_name=[0, 1, 2], header=1)
+        orig_triage = normalize_multiline_columns(orig_all_sheets[0].copy())
+        orig_vch = normalize_multiline_columns(orig_all_sheets[1].copy())
+        orig_ghs = normalize_multiline_columns(orig_all_sheets[2].copy())
+
+        sheet_info = {
+            "Triage (Sheet 1)": (orig_triage, TRIAGE_MAP),
+            "VCH (Sheet 2)": (orig_vch, VCH_MAP),
+            "GHS (Sheet 3)": (orig_ghs, GHS_MAP),
+        }
+
+        # Session state for accumulated fills, keyed by file name
+        fill_key = f"fill_ops_{uploaded_file.name}"
+        if fill_key not in st.session_state:
+            st.session_state[fill_key] = []
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            selected_sheet_name = st.selectbox(
+                "📄 Select sheet from original file",
+                list(sheet_info.keys()),
+                key="fill_sheet_select",
+            )
+
+        orig_df, orig_map = sheet_info[selected_sheet_name]
+        # Deduplicate column names (keep first) to avoid ambiguous Series errors
+        orig_df = orig_df.loc[:, ~orig_df.columns.duplicated(keep='first')]
+        id_col = find_id_column(orig_df, orig_map)
+        orig_cols = [c for c in orig_df.columns if orig_df[c].notna().any()]
+
+        with col_b:
+            ref_col = st.selectbox(
+                "📥 Source column (original file)",
+                sorted(orig_cols),
+                key="fill_ref_col",
+            )
+
+        target_col = st.selectbox(
+            "📤 Target column (standardised output)",
+            sorted(download_df.columns.tolist()),
+            key="fill_target_col",
+        )
+
+        if id_col is None:
+            st.warning("⚠️ Could not find a Child Unique Code / ID column in the selected sheet.")
+        else:
+            st.caption(f"Matching on: **{id_col}** (original) ↔ **Child Unique Code** (standardised)")
+
+            if st.button("🔄 Fill Missing Values", use_container_width=True):
+                st.session_state[fill_key].append({
+                    'sheet_name': selected_sheet_name,
+                    'id_col': id_col,
+                    'ref_col': ref_col,
+                    'target_col': target_col,
+                })
+                st.rerun()
+
+        # Apply all accumulated fills
+        for op in st.session_state[fill_key]:
+            op_sheet_df, op_map = sheet_info[op['sheet_name']]
+            op_id = find_id_column(op_sheet_df, op_map)
+            if op_id:
+                download_df, _ = fill_missing_from_original(
+                    download_df, op_sheet_df, op_id, op['ref_col'], op['target_col']
+                )
+
+        # Show fill history
+        if st.session_state[fill_key]:
+            with st.expander("📋 Fill History", expanded=True):
+                for op in st.session_state[fill_key]:
+                    st.markdown(
+                        f'<div class="log-entry log-success">✓ Filled <b>{op["target_col"]}</b> from <b>{op["ref_col"]}</b> ({op["sheet_name"]})</div>',
+                        unsafe_allow_html=True,
+                    )
+                if st.button("🗑️ Clear all fills", key="clear_fills"):
+                    st.session_state[fill_key] = []
+                    st.rerun()
+
+            file_suffix += "_filled"
 
         # ── Download ─────────────────────────────────────────────────────
         st.markdown('<div class="section-header"><h3>⬇️ Download Final Excel</h3></div>', unsafe_allow_html=True)

@@ -11,7 +11,8 @@
 
 # Output directory (processed/standardized data)
 output/
-
+sarada/
+irfan/
 # ========================
 # Python Virtual Environment
 # ========================
